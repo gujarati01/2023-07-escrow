@@ -4,14 +4,18 @@ pragma solidity 0.8.18;
 import {IEscrowFactory} from "./IEscrowFactory.sol";
 import {IEscrow} from "./IEscrow.sol";
 import {Escrow} from "./Escrow.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+// import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import { SafeMath } from "../lib/openzeppelin-contracts/contracts/utils/math/SafeMath.sol";
+
 
 /// @author Cyfrin
 /// @title EscrowFactory
 /// @notice Factory contract for deploying Escrow contracts.
 contract EscrowFactory is IEscrowFactory {
     using SafeERC20 for IERC20;
+    using SafeMath for uint256;
 
     /// @inheritdoc IEscrowFactory
     /// @dev msg.sender must approve the token contract to spend the price amount before calling this function.
@@ -25,6 +29,10 @@ contract EscrowFactory is IEscrowFactory {
         uint256 arbiterFee,
         bytes32 salt
     ) external returns (IEscrow) {
+        uint256 allowance = tokenContract.allowance(msg.sender , address(this));
+        require(allowance >= price ,
+        "insufficient balance for token transfer");
+
         address computedAddress = computeEscrowAddress(
             type(Escrow).creationCode,
             address(this),
@@ -40,48 +48,60 @@ contract EscrowFactory is IEscrowFactory {
         Escrow escrow = new Escrow{salt: salt}(
             price,
             tokenContract,
-            msg.sender, 
+            msg.sender,
             seller,
             arbiter,
             arbiterFee
         );
+
         if (address(escrow) != computedAddress) {
-            revert EscrowFactory__AddressesDiffer();
+           revert EscrowFactory__AddressesDiffer();
         }
+        // require(address(escrow) == computedAddress, "Escrow address mismatch");
+
         emit EscrowCreated(address(escrow), msg.sender, seller, arbiter);
         return escrow;
     }
 
     /// @dev See https://docs.soliditylang.org/en/latest/control-structures.html#salted-contract-creations-create2
-    function computeEscrowAddress(
-        bytes memory byteCode,
-        address deployer,
-        uint256 salt,
-        uint256 price,
-        IERC20 tokenContract,
-        address buyer,
-        address seller,
-        address arbiter,
-        uint256 arbiterFee
-    ) public pure returns (address) {
-        address predictedAddress = address(
-            uint160(
-                uint256(
-                    keccak256(
-                        abi.encodePacked(
-                            bytes1(0xff),
-                            deployer,
-                            salt,
-                            keccak256(
-                                abi.encodePacked(
-                                    byteCode, abi.encode(price, tokenContract, buyer, seller, arbiter, arbiterFee)
+ function computeEscrowAddress(
+    bytes memory byteCode,
+    address deployer,
+    uint256 salt,
+    uint256 price,
+    IERC20 tokenContract,
+    address buyer,
+    address seller,
+    address arbiter,
+    uint256 arbiterFee
+) internal pure returns (address) {
+    address predictedAddress = address(
+        uint160(
+            uint256(
+                keccak256(
+                    abi.encodePacked(
+                        bytes1(0xff),
+                        deployer,
+                        bytes32(salt), // Explicitly convert salt to bytes32
+                        keccak256(
+                            abi.encode(
+                                byteCode,
+                                abi.encode(
+                                    price,
+                                    tokenContract,
+                                    buyer,
+                                    seller,
+                                    arbiter,
+                                    arbiterFee
                                 )
                             )
                         )
                     )
                 )
             )
-        );
-        return predictedAddress;
-    }
+        )
+    );
+    return predictedAddress;
 }
+}
+//constract -  0xcD9B1E4e7cD72cc26a5164f1916C5A99b263b178

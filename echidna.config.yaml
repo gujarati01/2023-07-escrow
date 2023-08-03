@@ -1,0 +1,6 @@
+# .slither.yaml
+remappings:
+  "@openzeppelin=lib/openzeppelin-contracts",
+  "libs = ["lib"]"
+   
+   cryticArgs: ['--solc-remaps', '@openzeppelin=lib/openzeppelin-contracts']

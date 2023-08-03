@@ -4,15 +4,18 @@ pragma solidity 0.8.18;
 // Inspired by `BillOfSaleERC20` contract: https://github.com/open-esq/Digital-Organization-Designs/blob/master/Finance/BillofSaleERC20.sol
 
 import {IEscrow} from "./IEscrow.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {IERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "../lib/openzeppelin-contracts/contracts/security/ReentrancyGuard.sol";
+import { SafeMath } from "../lib/openzeppelin-contracts/contracts/utils/math/SafeMath.sol";
+
 
 /// @author Cyfrin
 /// @title Escrow
 /// @notice Escrow contract for transactions between a seller, buyer, and optional arbiter.
 contract Escrow is IEscrow, ReentrancyGuard {
     using SafeERC20 for IERC20;
+    using SafeMath for uint256;
 
     uint256 private immutable i_price;
     /// @dev There is a risk that if a malicious token is used, the dispute process could be manipulated.
@@ -37,11 +40,14 @@ contract Escrow is IEscrow, ReentrancyGuard {
         address arbiter,
         uint256 arbiterFee
     ) {
-        if (address(tokenContract) == address(0)) revert Escrow__TokenZeroAddress();
+        if (address(tokenContract) == address(0))
+            revert Escrow__TokenZeroAddress();
         if (buyer == address(0)) revert Escrow__BuyerZeroAddress();
         if (seller == address(0)) revert Escrow__SellerZeroAddress();
-        if (arbiterFee >= price) revert Escrow__FeeExceedsPrice(price, arbiterFee);
-        if (tokenContract.balanceOf(address(this)) < price) revert Escrow__MustDeployWithTokenBalance();
+        if (arbiterFee >= price)
+            revert Escrow__FeeExceedsPrice(price, arbiterFee);
+        if (tokenContract.balanceOf(address(this)) < price)
+            revert Escrow__MustDeployWithTokenBalance();
         i_price = price;
         i_tokenContract = tokenContract;
         i_buyer = buyer;
@@ -94,21 +100,35 @@ contract Escrow is IEscrow, ReentrancyGuard {
     function confirmReceipt() external onlyBuyer inState(State.Created) {
         s_state = State.Confirmed;
         emit Confirmed(i_seller);
+        require(i_seller != address(0), "seller address cannot be 0");
 
-        i_tokenContract.safeTransfer(i_seller, i_tokenContract.balanceOf(address(this)));
+        i_tokenContract.safeTransfer(
+            i_seller,
+            i_tokenContract.balanceOf(address(this))
+        );
     }
 
     /// @inheritdoc IEscrow
-    function initiateDispute() external onlyBuyerOrSeller inState(State.Created) {
+    function initiateDispute()
+        external
+        onlyBuyerOrSeller
+        inState(State.Created)
+    {
         if (i_arbiter == address(0)) revert Escrow__DisputeRequiresArbiter();
         s_state = State.Disputed;
         emit Disputed(msg.sender);
     }
 
     /// @inheritdoc IEscrow
-    function resolveDispute(uint256 buyerAward) external onlyArbiter nonReentrant inState(State.Disputed) {
+    function resolveDispute(
+        uint256 buyerAward
+    ) external onlyArbiter nonReentrant inState(State.Disputed) {
         uint256 tokenBalance = i_tokenContract.balanceOf(address(this));
-        uint256 totalFee = buyerAward + i_arbiterFee; // Reverts on overflow
+
+        //risk of underflow
+
+        uint256 totalFee = buyerAward.add(i_arbiterFee); // Reverts on overflow
+        //risk of  no checking sufficient balance before transacting
         if (totalFee > tokenBalance) {
             revert Escrow__TotalFeeExceedsBalance(tokenBalance, totalFee);
         }
